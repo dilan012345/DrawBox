@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -194,6 +195,7 @@ fun DrawBox(
      * grow or shrink the gap between an element and its selection box.
      */
     selectionStyle: SelectionChromeStyle = SelectionChromeStyle.Default,
+    backgroundPattern: BackgroundPattern? = null,
 ) {
     // Two-layer split:
     //   - finalizedLayer: cached display list of "static" elements (everything not
@@ -285,8 +287,14 @@ fun DrawBox(
     // per-frame work in `.drawBehind` collapses to a single shader-backed drawRect.
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
-    val patternBrush: ShaderBrush? = remember(state.bgPattern, density, layoutDirection) {
-        state.bgPattern?.toTiledBrush(density, layoutDirection)
+    val pattern = backgroundPattern ?: state.bgPattern
+
+    val patternBrush: ShaderBrush? = remember(
+        pattern,
+        density,
+        layoutDirection
+    ) {
+        pattern?.toTiledBrush(density, layoutDirection)
     }
 
     val handleHitPx = with(density) { 16.dp.toPx() }
@@ -460,36 +468,51 @@ fun DrawBox(
                     }
                 }
             }
+
             // Multi-touch: pinch-zoom (focal-preserving) + two-finger pan.
             .pointerInput(Unit) {
                 awaitPointerEventScope {
                     var prevDistance = 0f
                     var prevCentroid = Offset.Zero
                     var multi = false
+
                     while (true) {
                         val event = awaitPointerEvent()
                         val pressed = event.changes.filter { it.pressed }
+
                         if (pressed.size >= 2) {
                             val p1 = pressed[0].position
                             val p2 = pressed[1].position
+
                             val d = (p1 - p2).getDistance()
-                            val centroid = Offset((p1.x + p2.x) * 0.5f, (p1.y + p2.y) * 0.5f)
+                            val centroid = Offset(
+                                (p1.x + p2.x) * 0.5f,
+                                (p1.y + p2.y) * 0.5f
+                            )
+
                             if (!multi) {
                                 multi = true
                                 prevDistance = d
                                 prevCentroid = centroid
-                                // Cancel any in-progress marquee on the other handler.
+
                                 if (latestState.marqueeRect != null) {
                                     latestOnIntent(Intent.SetMarqueeRect(null))
                                 }
                             } else {
                                 if (prevDistance > 1f && d > 1f) {
-                                    latestOnIntent(Intent.ZoomBy(d / prevDistance, centroid))
+                                    latestOnIntent(
+                                        Intent.ZoomBy(d / prevDistance, centroid)
+                                    )
                                 }
-                                latestOnIntent(Intent.PanBy(centroid - prevCentroid))
+
+                                latestOnIntent(
+                                    Intent.PanBy(centroid - prevCentroid)
+                                )
+
                                 prevDistance = d
                                 prevCentroid = centroid
                             }
+
                             event.changes.forEach { it.consume() }
                         } else if (multi) {
                             multi = false
